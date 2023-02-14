@@ -9,7 +9,7 @@ def get_tag(config: Config, name: str) -> str:
 
 def build(path: str, tag: str, *args: str) -> None:
     fmt.echo_info(f"Building image {tag}")
-    utils.docker("build", "-t", tag, *args, path)
+    utils.docker("buildx", "build", "-t", tag, *args, path)
 
 
 def pull(tag: str) -> None:
