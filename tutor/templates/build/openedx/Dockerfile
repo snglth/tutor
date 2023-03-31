@@ -3,7 +3,8 @@ FROM docker.io/ubuntu:20.04 as minimal
 LABEL maintainer="Overhang.io <contact@overhang.io>"
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+	apt update && \
     apt install -y build-essential curl git language-pack-en
 ENV LC_ALL en_US.UTF-8
 {{ patch("openedx-dockerfile-minimal") }}
@@ -11,7 +12,8 @@ ENV LC_ALL en_US.UTF-8
 ###### Install python with pyenv in /opt/pyenv and create virtualenv in /openedx/venv
 FROM minimal as python
 # https://github.com/pyenv/pyenv/wiki/Common-build-problems#prerequisites
-RUN apt update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+	apt update && \
     apt install -y libssl-dev zlib1g-dev libbz2-dev \
     libreadline-dev libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev \
     xz-utils tk-dev libffi-dev liblzma-dev python-openssl git
@@ -82,7 +84,8 @@ FROM python as python-requirements
 ENV PATH /openedx/venv/bin:${PATH}
 ENV VIRTUAL_ENV /openedx/venv/
 
-RUN apt update && apt install -y software-properties-common libmysqlclient-dev libxmlsec1-dev libgeos-dev
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+	apt update && apt install -y software-properties-common libmysqlclient-dev libxmlsec1-dev libgeos-dev
 
 # Note that this means that we need to reinstall all requirements whenever there is a
 # change in edx-platform, which sucks. But there is no obvious alternative, as we need
@@ -97,15 +100,15 @@ WORKDIR /openedx/edx-platform
 RUN pip install setuptools==62.1.0 pip==22.0.4 wheel==0.37.1
 
 # Install base requirements
-RUN pip install -r ./requirements/edx/base.txt
+RUN --mount=type=cache,target=/root/.cache/pip pip install -r ./requirements/edx/base.txt
 
 # Install django-redis for using redis as a django cache
 # https://pypi.org/project/django-redis/
-RUN pip install django-redis==5.2.0
+RUN --mount=type=cache,target=/root/.cache/pip pip install django-redis==5.2.0
 
 # Install uwsgi
 # https://pypi.org/project/uWSGI/
-RUN pip install uwsgi==2.0.20
+RUN --mount=type=cache,target=/root/.cache/pip pip install uwsgi==2.0.20
 
 {{ patch("openedx-dockerfile-post-python-requirements") }}
 
@@ -131,13 +134,14 @@ ARG NPM_REGISTRY={{ NPM_REGISTRY }}
 COPY --from=code /openedx/edx-platform/package.json /openedx/edx-platform/package.json
 COPY --from=code /openedx/edx-platform/package-lock.json /openedx/edx-platform/package-lock.json
 WORKDIR /openedx/edx-platform
-RUN npm clean-install --verbose --registry=$NPM_REGISTRY
+RUN --mount=type=cache,target=/openedx/edx-platform/.npm,sharing=locked npm clean-install --verbose --registry=$NPM_REGISTRY
 
 ###### Production image with system and python requirements
 FROM minimal as production
 
 # Install system requirements
-RUN apt update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+	apt update && \
     apt install -y gettext gfortran graphviz graphviz-dev libffi-dev libfreetype6-dev libgeos-dev libjpeg8-dev liblapack-dev libmysqlclient-dev libpng-dev libsqlite3-dev libxmlsec1-dev lynx ntp pkg-config rdfind && \
     rm -rf /var/lib/apt/lists/*
 
@@ -205,12 +209,13 @@ ENV NO_PREREQ_INSTALL 1
 # We need to rely on a separate openedx-assets command to accelerate asset processing.
 # For instance, we don't want to run all steps of asset collection every time the theme
 # is modified.
-RUN openedx-assets xmodule \
+RUN --mount=type=cache,target=/openedx/staticfiles,uid=1000 \
+	openedx-assets xmodule \
     && openedx-assets npm \
     && openedx-assets webpack --env=prod \
     && openedx-assets common
 COPY --chown=app:app ./themes/ /openedx/themes/
-RUN openedx-assets themes \
+RUN --mount=type=cache,target=/openedx/staticfiles,uid=1000 openedx-assets themes \
     && openedx-assets collect --settings=tutor.assets \
     # De-duplicate static assets with symlinks
     && rdfind -makesymlinks true -followsymlinks true /openedx/staticfiles/
@@ -231,7 +236,8 @@ FROM production as development
 
 # Install useful system requirements (as root)
 USER root
-RUN apt update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+	apt update && \
     apt install -y vim iputils-ping dnsutils telnet \
     && rm -rf /var/lib/apt/lists/*
 USER app
